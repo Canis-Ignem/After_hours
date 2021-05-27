@@ -51,7 +51,7 @@ def batchify(pth, batch_size, img_size):
     
     x = np.array(x)
     y = np.array(y)
-    print(x.shape)
+    #print(x.shape)
     x = x.reshape(x.shape[0]//batch_size,batch_size,3,img_size,img_size)
 
     y = y.reshape(y.shape[0]//batch_size,batch_size)
