@@ -19,10 +19,10 @@ from torchsummary import summary
 from sklearn.metrics import accuracy_score
 
 
-x_train, y_train = dh.batchify("./datasets/train_data",5,512)
+x_train, y_train = dh.batchify("./datasets/train_data",5,256)
 print(x_train.shape)
 
-x_val, y_val = dh.batchify("./datasets/test_data",5,512)
+x_val, y_val = dh.batchify("./datasets/test_data",5,256)
 print(x_val.shape)
 
 
@@ -113,13 +113,13 @@ if torch.cuda.is_available():
     helon.cuda()
     criterion.cuda()
 
-summary(helon,(3, 512, 512))
+summary(helon, (3, x_train.shape[2] , x_train.shape[2]) )
 
 optim = Adam(helon.parameters(), lr=0.0005)
 scheduler = torch.optim.lr_scheduler.StepLR(optim, 1, gamma= 0.95)
 
 
 
-epochs = 0
+epochs = 20
 
 train(x_train, y_train, x_val, y_val, helon, epochs, optim, criterion, scheduler)
