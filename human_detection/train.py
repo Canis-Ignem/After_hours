@@ -1,125 +1,151 @@
-#model
-from numpy.random import gamma
-from torch import device
-import torch
-from model import Helon
-
-#Data
+from numpy.core.numeric import outer
+from model import CNN
 import data_handler as dh
+import torch
+from torch.autograd  import Variable
+from torch.nn import L1Loss, CrossEntropyLoss, BCELoss
+from torch.optim import Adam, SGD
+from torchsummary import summary
+from sklearn.metrics import accuracy_score, confusion_matrix
 import numpy as np
 from matplotlib import pyplot as plt
-
-#torch
-from torch.autograd import Variable
-from torch.nn import CrossEntropyLoss, L1Loss, BCELoss, Softmax
-from torch.optim import Adam
-from torchsummary import summary
-
-#metrics
-from sklearn.metrics import accuracy_score
-
-
-x_train, y_train = dh.batchify("./datasets/train_data",5,256)
-print(x_train.shape)
-
-x_val, y_val = dh.batchify("./datasets/test_data",5,256)
-print(x_val.shape)
+from PIL import Image
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-train_loss = []
-val_loss = []
+train_x,train_y = dh.create_batch("./datasets/train_dir/",5,512)
+print(train_x.shape)
 
-def train(x_train, y_train, x_val, y_val, model, epochs, optimizer, criterion, scheduler):
+val_x,val_y = dh.create_batch("./datasets/test_dir/",5,512)
+print(val_x.shape)
 
+
+train_losses = []
+val_losses = []
+
+
+
+def train(epochs,train_x,train_y):
     best_val = 2
     model.train()
-
-    for epoch in range(epochs+1):
-
-        rnd = np.random.permutation(x_train.shape[0])
-        x_train = x_train[rnd]
-        y_train = y_train[rnd]
+    for epoch in range(epochs):
         
-        e_loss = 0
+        rnd = np.random.permutation(train_x.shape[0]) 
+        train_x = train_x[rnd]
+        train_y = train_y[rnd]
 
-        for x, y in zip(x_train, y_train):
-
+        tr_loss = 0
+        
+        for x , y in zip(train_x,train_y):
+    
             x, y = Variable(x), Variable(y)
 
             if torch.cuda.is_available():
-
                 x = x.cuda()
                 y = y.cuda()
-            
+
+
             optimizer.zero_grad()
+            
+            output_train = model(x)
 
-            output = model(x)
+            #output_train = torch.reshape(output_train,(output_train.shape[0],))
+            #print(y)
+            #print(output_train)
 
-            tr_loss = criterion(output, y)
+            loss_train = criterion(output_train, y)
+            #print(loss_train)
 
-            tr_loss.backward()
+            loss_train.backward()
+
             optimizer.step()
 
-            e_loss += tr_loss.item() 
-
-        train_loss.append(e_loss/x_train.shape[0])
-
-        #Logs and validation
-        if epoch % 2 == 0:
-        
-            validation_loss = 0
-
+            tr_loss += loss_train.item()
+        '''
+        if epoch%2 == 0:
+            train_losses.append(tr_loss/train_x.shape[0])
+            print('Epoch : ',epoch, "\t Train loss: ", tr_loss/train_x.shape[0])
+        '''
+        if epoch%1 == 0:
+            train_losses.append(tr_loss/train_x.shape[0])
+            
+            val_loss = 0
             with torch.no_grad():
+                for x,y in zip(val_x,val_y):
+                    output = model(x.cuda())
+                    #output = torch.reshape(output,(output.shape[0],))
+                    #print(output.shape)
+                    loss_val = criterion(output, y.cuda())
+                    val_loss += loss_val.item()
 
-                for x, y in zip(x_val, y_val):
-    
-                    x, y = Variable(x), Variable(y)
+            val_loss =  val_loss/val_x.shape[0]
+            val_losses.append(val_loss)
+            print('Epoch : ',epoch, "\t Train loss: ", tr_loss/train_x.shape[0], "\t Validation loss: ", val_loss)
 
-                    if torch.cuda.is_available():
-
-                        x = x.cuda()
-                        y = y.cuda()
-                    
-                    val_output = model(x)
-
-                    v_loss = criterion(val_output, y)
-
-                    validation_loss += v_loss.item()
-
-                avg_val_loss = validation_loss/x_val.shape[0]
-                val_loss.append(avg_val_loss)
-                print("Epoch: ", epoch, " \t train_loss: ", train_loss[-1], "\t validation loss: ", avg_val_loss)
-
-                if best_val > avg_val_loss:
-
-                    best_val = avg_val_loss
-                    torch.save(model,"./models/Best_Model2.pth")
-        
+            if val_loss < best_val:
+                best_val = val_loss
+                torch.save(model, "./models/Best_model2.pth")
         scheduler.step()
-    print(len(train_loss))
-    print(len(val_loss))
-    plt.plot(train_loss)
-    plt.plot(val_loss)
+    plt.plot(train_losses)
+    plt.plot(val_losses)
     plt.show()
 
+def test(model, x_data, y_data):
+
+    predictions = []
+    # prediction for training set
+    with torch.no_grad():
+        for x in x_data:
+
+            output = model(x.cuda()).cpu()
+            #print(output.shape)
+            preds = np.argmax(output, axis=1)
+            predictions.append(preds.numpy())
+            #print(preds)
+            
+    predictions = np.array(predictions).flatten()
+    y_data = y_data.numpy().flatten()
+    #print(predictions)
+    #print(y_data)
+
+    print(accuracy_score(y_data, predictions))
 
 
-helon = Helon()
+
+model = CNN()
+
+# defining the optimizer
+optimizer = Adam(model.parameters(), lr=0.0005)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.95)
+
+# defining the loss function
 criterion = CrossEntropyLoss()
 
+
+# checking if GPU is available
 if torch.cuda.is_available():
-    helon.cuda()
-    criterion.cuda()
+    model = model.cuda()
+    criterion = criterion.cuda()
 
-summary(helon, (3, x_train.shape[2] , x_train.shape[2]) )
+summary(model,(3, 512, 512))
 
-optim = Adam(helon.parameters(), lr=0.0005)
-scheduler = torch.optim.lr_scheduler.StepLR(optim, 1, gamma= 0.95)
+best_val = 2
+
+# defining the number of epochs
+epochs = 5
+#train(epochs,train_x,train_y)
+
+
+model = torch.load("./models/Best_model.pth")
+
+
+print("Trainning accuracy is:")
+test(model, train_x, train_y)
+print("Testing accuracy is:")
+test(model, val_x, val_y)
 
 
 
-epochs = 20
 
-train(x_train, y_train, x_val, y_val, helon, epochs, optim, criterion, scheduler)
+
